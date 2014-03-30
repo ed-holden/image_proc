@@ -1,6 +1,0 @@
-Image Processing Script
-
-This script allows you to take JPEG images from multiple sources (e.g., different cameras) and
-give them uniform names, including custom strings (e.g., names of people and places and
-descriptions). You use it in two phases, the prepare phase (-p option) and the finalize phase (-f
-option). Running improc.py -h presents full command line options.
