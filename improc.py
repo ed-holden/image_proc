@@ -37,14 +37,15 @@ def timeShift(image_datetime, timeshift):
     image_datetime: datetime, The timestamp taken from the file in some way.
     timeshift: str, A number of hours by which to shift the timestamp, with a +
         or - symbol and an integer.
+
   Returns:
     A revised datetime object.
   """
   try:
     if timeshift[0] == '+':
-      new_image_datetime = image_datetime + datetime.timedelta(hours=int( timeshift[1] ) )
+      new_image_datetime = image_datetime + datetime.timedelta(hours=int( timeshift[1:] ) )
     elif timeshift[0] == "-":
-      new_image_datetime = image_datetime - datetime.timedelta(hours=int( timeshift[1] ) )
+      new_image_datetime = image_datetime - datetime.timedelta(hours=int( timeshift[1:] ) )
     else:
       raise TypeError
 
@@ -55,7 +56,7 @@ def timeShift(image_datetime, timeshift):
   return new_image_datetime
 
 
-def convertToAscii(nameString):
+def convertToAscii(name_string):
   """Make a string ASCII-safe, swapping some characters for ASCII equivalents."""
   translations = {
       8226: '*',   # translate '•'
@@ -89,6 +90,7 @@ def convertToAscii(nameString):
       244: 'o',   # translate 'ô'
       246: 'o',   # translate 'ö'
       245: 'o',   # translate 'õ'
+      248: 'o',   # translate 'ø'
       250: 'u',   # translate 'ú'
       249: 'u',   # translate 'ù'
       251: 'u',   # translate 'û'
@@ -174,7 +176,7 @@ def convertToAscii(nameString):
       184: ','    # translate '¸'
   }
 
-  unicode_string=nameString.decode('utf-8')
+  unicode_string=name_string.decode('utf-8')
   revised_name = ''
 
   for character in unicode_string:
@@ -247,7 +249,7 @@ def PrepareJpegFiles(file_list, timeshift, verbose=False):
   The first eight characters are the datestring, and the 123456 is the hour,
   minute, second, and a trailing "00" to allow multiple pictures during the same
   second. Additionally, the function analyzes the orientation metadata and
-  resets it to 1, and issue the jpegtran command to rotate the photo accordingly.
+  resets it to 1, and issue the exiftran command to rotate the photo accordingly.
   When we re-save the metadata, we'll put the original filename in the user
   comment field.
 
@@ -343,23 +345,26 @@ def PrepareJpegFiles(file_list, timeshift, verbose=False):
       # 0 = normal, 1 = 180, 6 = 90 CW, 9 = 90 CCW, 8 = 270 CW, 2 = 270 CCW
       try:
         image_orientation = image_metadata['Exif.Image.Orientation'].value
-        if (image_orientation > 1):
-          required_rotation = True
-        else:
-          required_rotation = False
       except KeyError:
-        required_rotation = False
+        image_orientation = 0
+
+      if (image_orientation > 1):
+        rotation_needed = True
+      else:
+        rotation_needed = False
 
       try:
         image_metadata.write()
       except ValueError:
         print "\n\tError: Cannot write metadata to file " + image_filename + " - image valid?"
 
-      if required_rotation:
-        rotation_notification = " and rotating based on orientation tag"
-        os.system('exiftran -aig ' + image_filename + ' > /dev/null 2>&1')
-      else:
-        rotation_notification = ""
+      rotation_notification = ''
+
+      if rotation_needed:
+        if os.system('exiftran -aig ' + image_filename + ' > /dev/null 2>&1') == 0:
+          rotation_notification = " and rotating based on orientation tag"
+        else:
+          rotation_notification = ' but cannot rotate: please install exiftran'
 
       if verbose:
         print (
@@ -397,7 +402,7 @@ def WriteFile(image_filename, new_title, verbose=False):
 
   image_metadata['Exif.Image.ImageDescription'] = pyexiv2.ExifTag('Exif.Image.ImageDescription', safe_title)
   image_metadata['Exif.Image.DocumentName'] = pyexiv2.ExifTag('Exif.Image.DocumentName', safe_title)
-  image_metadata['Exif.Photo.UserComment'] = pyexiv2.ExifTag('Exif.Photo.UserComment', new_title + "\n" + old_usercomment)
+  image_metadata['Exif.Photo.UserComment'] = pyexiv2.ExifTag('Exif.Photo.UserComment', safe_title + "\n" + old_usercomment)
   image_metadata['Exif.Image.Artist'] = pyexiv2.ExifTag('Exif.Image.Artist', ARTIST_NAME)
   image_metadata['Exif.Image.Copyright'] = pyexiv2.ExifTag('Exif.Image.Copyright', "Copyright " + new_title[:4] + " " + ARTIST_NAME)
   try:
@@ -439,7 +444,7 @@ def FinalizeJpegFiles(file_list, begin, until, verbose, sanity_check):
   for image_filename in file_list:
 
     # Skip some files with invalid filenames, including filename extensions
-    invalidFileRe = re.compile(r"^\..*|^[Ii][Mm].*|^[Vv][Ii].*|.*\.[A-Za-z]{3}")
+    invalidFileRe = re.compile(r"^\..*|^[Ii][Mm].*|^[Vv][Ii].*|.*\.[A-Za-z4]{3}")
     if invalidFileRe.match(image_filename):
       print "\tNotification: Skipping file", image_filename
       continue
@@ -482,7 +487,8 @@ def FinalizeJpegFiles(file_list, begin, until, verbose, sanity_check):
         try:
           location = FREQUENT_LOCATIONS[extractedLocation] + " - "
         except KeyError:
-          raise Exception, image_filename
+          raise KeyError(
+              'Image "%s" has invalid location "%s"' % (image_filename, extractedLocation))
       else:
         location = extractedLocation + " - "
 
